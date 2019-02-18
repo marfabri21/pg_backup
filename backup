@@ -1,0 +1,203 @@
+#!/bin/bash
+#### AUTOR MARTIN VILCHE
+##### DEFINICION DE CONFIG Y VARIABLES
+
+DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+DATE=`date +%Y_%m_%d`
+DIRECTORIO=/var/lib/pgsql/10/backups
+ARCHIVO_LOG=$DATE.log
+ARCHIVO_DUMP=$DATE.sql
+DATABASE_NAME='siges'
+EMAIL_REPORTES=mvilche@sofis.com.uy
+##################
+
+
+###FUNCIONES
+
+function ErrorReporte {
+
+echo "# ENVIANDO REPORTES DE LAS TAREAS REALIZADAS $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo " ERROR - SE ADJUNTA REPORTE DE TAREAS REALIZADAS - PROCESO AUTOMATICO BY MARTIN VILCHE" | mail -s "###ERROR### EN REPORTE DE TAREAS RESPALDOS - $DATABASE_NAME" -a $DIRECTORIO/$DATE/$ARCHIVO_LOG $EMAIL_REPORTES
+if [ $? -eq 0 ]; then
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+    echo "# ENVIAR REPORTE CORRECT0 $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+else
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+    echo "# ENVIAR REPORTE FALLIDO FALLIDO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+exit 1
+fi
+
+
+}
+
+
+function LagSlave {
+
+TIEMPO=$(psql -qtAX -c  'SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::INT;')
+
+}
+
+
+function SlavePause {
+
+SLAVE_PAUSE=$(psql -qtAX -c 'select pg_is_wal_replay_paused()')
+
+}
+
+function SlaveResume {
+
+SLAVE_PAUSE=$(psql -qtAX -c 'select pg_is_wal_replay_paused()')
+
+}
+
+
+
+####
+
+
+
+
+if [ -d "$DIRECTORIO/$DATE" ]; then
+  echo "ERROR EL DIRECTORIO YA EXISTE, YA FUE EJECUTADO EL SCRIPT PARA EL DIA DE HOY" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "SE DETECTO UN ERROR, REVISAR EL LOG PARA LA FECHA ACTUAL"
+ErrorReporte
+exit 1
+else
+mkdir $DIRECTORIO/$DATE
+
+fi
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "# COMENZANDO TAREAS PARA LA CREACION DEL DUMP $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "# DETENIENDO REPLICACION EN EL SLAVE $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+psql -c 'select pg_wal_replay_pause()' &>> /dev/null
+
+if [ $? -eq 0 ]; then
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+    SlavePause
+    if [ "$SLAVE_PAUSE" == "t" ]; then
+    echo "# DETENIDO EN EL SLAVE CORRECT0 $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+
+else
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+    echo "# DETENIDO EN EL SLAVE FALLIDO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    ErrorReporte
+
+exit 1
+fi
+fi
+
+DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "# COMENZANDO DUMP $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+time pg_dump -Fp -E utf8 -O --no-unlogged-table-data --no-publications --no-subscriptions --no-security-labels --no-privileges --no-blobs -d $DATABASE_NAME -f $DIRECTORIO/$DATE/$ARCHIVO_DUMP &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+
+if [ $? -eq 0 ]; then
+
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# RESPLADO DUMP REALIZADO CORRECT0 $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# INICIANDO NUEVAMENTE EL SLAVE $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    psql -c 'select pg_wal_replay_resume()' &>> /dev/null
+
+if [ $? -eq 0 ]; then
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+    SlaveResume
+    if [ "$SLAVE_PAUSE" == "f" ]; then
+
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# INICIADO DE SLAVE CORRECT0 $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+
+else
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# DETENIDO EN EL SLAVE FALLIDO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    ErrorReporte
+exit 1
+fi
+fi
+
+else
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# RESPALDO DUMP FALLIDO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# INICIANDO NUEVAMENTE EL SLAVE $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    psql -c 'select pg_wal_replay_resume()' &>> /dev/null
+
+if [ $? -eq 0 ]; then
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# INICIADO DE SLAVE CORRECT0 $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+else
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# DETENIDO EN EL SLAVE FALLIDO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    ErrorReporte
+exit 1
+fi
+ErrorReporte
+exit 1
+fi
+
+DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "# COMPRIMIENDO DUMP REALIZADO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+gzip -9 $DIRECTORIO/$DATE/$ARCHIVO_DUMP &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+
+if [ $? -eq 0 ]; then
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# COMPRIMIDO DEL DUMP CORRECT0 $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# MOSTRANDO TAMAÑO DEL DUMP COMPRIMIDO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    ls -lh $DIRECTORIO/$DATE/ &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+else
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+    echo "# COMPRIMIDO FALLIDO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+ErrorReporte
+exit 1
+fi
+
+DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "# COMPROBANDO INTEGRIDAD DEL DUMP COMPRIMIDO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+gzip -t $DIRECTORIO/$DATE/$ARCHIVO_DUMP &>> /dev/null
+
+if [ $? -eq 0 ]; then
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# INTEGRIDAD DEL COMPRIMIDO ES CORRECTA $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+else
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+    echo "# INTEGRIDAD DEL COMPRIMIDO  FALLIDO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+ErrorReporte
+exit 1
+fi
+
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "# COMPROBANDO ESTADO DEL SLAVE $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+LagSlave
+CONTADOR=0
+while [ "$TIEMPO" -gt 60 ] || [ "$TIEMPO" != "" ]; do
+echo "# EL SLAVE ESTA ATRASADO CON EL MASTER POR $TIEMPO SEGUNDOS" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+LagSlave
+CONTADOR=$((CONTADOR + 1))
+sleep 15
+if [ "$CONTADOR" -gt 20 ]; then
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "# EL SLAVE DEMORO MUCHO TIEMPO EN SINCRONIZAR CON MASTER - SALIENDO" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+ErrorReporte
+exit 1
+fi
+done
+
+DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+echo "----------------------------------------------" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "# TAREAS REALIZADAS CORRECTAMENTE $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "# ENVIANDO REPORTES DE LAS TAREAS REALIZADAS $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+echo "SE ADJUNTA REPORTE DE TAREAS REALIZADAS EN $DATABASE_NAME - PROCESO AUTOMATICO BY MARTIN VILCHE" | mail -s "###CORRECTO### - REPORTE DE TAREAS RESPALDOS - $DATABASE_NAME" -a $DIRECTORIO/$DATE/$ARCHIVO_LOG $EMAIL_REPORTES
+if [ $? -eq 0 ]; then
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+    echo "# ENVIAR REPORTE CORRECT0 $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+else
+    DATE_HORA=`date '+%Y-%m-%d %H:%M:%S'`
+    echo "# ENVIAR REPORTE FALLIDO FALLIDO $DATE_HORA" &>> $DIRECTORIO/$DATE/$ARCHIVO_LOG
+ErrorReporte
+exit 1
+fi
