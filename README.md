@@ -1,2 +1,2 @@
 # pg_backup
-Postgres backup replication bash
+Script para respaldar base de datos postgres replicacion Tot Standby
