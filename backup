@@ -7,7 +7,7 @@ DATE=`date +%Y_%m_%d`
 DIRECTORIO=/var/lib/pgsql/10/backups
 ARCHIVO_LOG=$DATE.log
 ARCHIVO_DUMP=$DATE.sql
-DATABASE_NAME='siges'
+DATABASE_NAME='mibase'
 EMAIL_REPORTES=mvilche@sofis.com.uy
 ##################
 
